@@ -1,0 +1,32 @@
+# requirements.txt — versi di-pin untuk reproducible deployment
+# Install: pip install -r requirements.txt
+
+# ── Core ──────────────────────────────────────────────────────
+streamlit==1.58.0
+pandas==3.0.2
+numpy==2.4.4
+plotly==6.1.2
+openpyxl==3.1.5
+
+# ── Auth & Security ───────────────────────────────────────────
+PyJWT==2.7.0
+bcrypt==5.0.0
+streamlit-local-storage==0.0.14
+
+# ── Analytics & ML ───────────────────────────────────────────
+scikit-learn==1.8.0
+prophet==1.1.6
+mlxtend==0.23.3
+
+# ── UI Components ────────────────────────────────────────────
+altair==6.2.1
+streamlit-lottie==0.0.5
+
+# ── HTTP ─────────────────────────────────────────────────────
+requests==2.33.1
+
+# ── Monitoring (opsional — aktif jika SENTRY_DSN diset di .env) ──
+sentry-sdk==2.29.1
+
+# ── TIDAK DIBUTUHKAN (sudah diganti load_env.py) ─────────────
+# python-dotenv tidak perlu diinstall

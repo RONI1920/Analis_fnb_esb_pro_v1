@@ -1,0 +1,28 @@
+# .streamlit/config.toml — Konfigurasi Streamlit untuk Production
+
+[server]
+# Jangan tampilkan error stack trace ke user
+showErrorDetails = false
+
+# Matikan toolbar "Made with Streamlit" dan debug tools
+enableStaticServing = false
+
+# Header CORS — ubah ke domain Anda
+enableCORS = false
+enableXsrfProtection = true
+
+# Matikan file watcher — hilangkan "File change. Rerun" bar
+fileWatcherType = "none"
+maxUploadSize = 50  # Max 50 MB per file upload
+
+[browser]
+# Matikan pengumpulan statistik usage ke Streamlit Cloud
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+
+
+[runner]
+# Fast reruns — mengurangi delay saat interaksi
+fastReruns = true

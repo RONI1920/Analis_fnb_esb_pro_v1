@@ -1,0 +1,81 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build
+build/
+dist/
+wheels/
+*.egg-info/
+
+# =========================
+# Database
+# =========================
+*.db
+*.sqlite3
+
+# SQLite tools
+sqlite3.exe
+sqlite-tools-win-x64-3510000/
+
+# =========================
+# Virtual Environment
+# =========================
+.venv/
+venv/
+env/
+
+# =========================
+# Streamlit
+# =========================
+.streamlit/secrets.toml
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs & Cache
+# =========================
+*.log
+.cache/
+
+# =========================
+# Uploaded / Export Files
+# =========================
+uploads/
+exports/
+temp/
+
+# =========================
+# Jupyter
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# Secrets (root level)
+# =========================
+secrets.toml
+.env
+# =========================
+# Production Safety
+# =========================
+fix_auth_db.py
+auth_users.db
+*.db
+.env
+.streamlit/secrets.toml
+asset/QRIS_*.webp
+asset/qris.png
+
+*.pyc
