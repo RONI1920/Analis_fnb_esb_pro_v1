@@ -8,6 +8,8 @@ import os
 import pandas as pd
 import streamlit as st
 
+DATABASE_DISABLED = False #True hidup kan database
+
 # ── require_auth HARUS dipanggil SEBELUM import lain yang pakai session ──
 from auth import (
     require_auth,
@@ -935,7 +937,8 @@ def _route_to_tab(page_names: list, pkg_key: str, role: str):
         # FIX: jangan pakai key= pada toggle agar session_state bisa diset
         # dari luar widget (misalnya setelah save). Gunakan value= saja.
         _db_on = st.session_state.get("use_db", False)
-        if supports_db:
+        # if supports_db: // matikan sementara
+        if not DATABASE_DISABLED:
             new_db = st.toggle(
                 "💾 Simpan ke Database",
                 value=_db_on,
