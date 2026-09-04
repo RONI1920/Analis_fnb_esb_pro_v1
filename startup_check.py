@@ -84,23 +84,26 @@ def _check() -> tuple[list[str], list[str]]:
             "   Set PAYMENT_REKENING dan PAYMENT_CONFIRM_WA di .env atau secrets.toml."
         )
 
+# Hilangkan warning sementara 
+
     # ── P1-2: Backup dir ─────────────────────────────────────────
-    env_mode = os.environ.get("FNB_ENV", "development")
-    if env_mode == "production":
-        backup_dir = os.environ.get("FNB_BACKUP_DIR", "")
-        if not backup_dir:
-            warnings.append(
-                "⚠️  FNB_BACKUP_DIR belum diset.\n"
-                "   Backup otomatis tidak aktif — data berisiko hilang jika server crash.\n"
-                "   Set FNB_BACKUP_DIR=C:\\Users\\RoniAlHidayat\\fnb_backups di .env."
-            )
-        else:
-            # Pastikan folder backup bisa dibuat / sudah ada
-            try:
-                import pathlib
-                pathlib.Path(backup_dir).mkdir(parents=True, exist_ok=True)
-            except Exception as e:
-                warnings.append(f"⚠️  FNB_BACKUP_DIR tidak bisa dibuat: {e}")
+    # env_mode = os.environ.get("FNB_ENV", "development")
+    # if env_mode == "production":
+    #     backup_dir = os.environ.get("FNB_BACKUP_DIR", "")
+    #     if not backup_dir:
+    #         warnings.append(
+    #             "⚠️  FNB_BACKUP_DIR belum diset.\n"
+    #             "   Backup otomatis tidak aktif — data berisiko hilang jika server crash.\n"
+    #             "   Set FNB_BACKUP_DIR=C:\\Users\\RoniAlHidayat\\fnb_backups di .env."
+    #         )
+    #     else:
+    #         # Pastikan folder backup bisa dibuat / sudah ada
+    #         try:
+    #             import pathlib
+    #             pathlib.Path(backup_dir).mkdir(parents=True, exist_ok=True)
+    #         except Exception as e:
+    #             warnings.append(f"⚠️  FNB_BACKUP_DIR tidak bisa dibuat: {e}")
+
 
     # ── P1-3: Email placeholder check ────────────────────────────
     email_sender = os.environ.get("NOTIFY_EMAIL_SENDER", "")
