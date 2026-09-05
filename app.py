@@ -987,13 +987,13 @@ def _route_to_tab(page_names: list, pkg_key: str, role: str):
                         unsafe_allow_html=True,
                     )
                     if st.button("💾 Simpan ke Database", key=f"save_btn_{table_name}",
-                                 use_container_width=True, type="primary"):
+                                use_container_width=True, type="primary"):
                         st.session_state[f"pending_save_{table_name}"] = True
                         st.rerun()
                 else:
                     st.button("🔒 Simpan ke Database", key=f"save_btn_{table_name}",
-                              use_container_width=True, disabled=True,
-                              help="Aktifkan toggle Database untuk menyimpan")
+                            use_container_width=True, disabled=True,
+                            help="Aktifkan toggle Database untuk menyimpan")
             return f
 
         # ── Tampilkan uploader sesuai POS yang aktif ──────────────

@@ -1,5 +1,8 @@
 # ui/pricing.py — Halaman Pricing (Full Native Streamlit)
 # DIUPDATE: Baca harga & deskripsi dari DB agar sinkron dengan Admin Panel.
+# FIX MOBILE: gabung render per-paket jadi satu blok kolom (bukan per-atribut)
+# agar saat layar sempit (mobile), Streamlit stack konten per-KARTU yang utuh,
+# bukan tercampur per-jenis elemen (semua nama dulu, lalu semua harga, dst).
 
 from __future__ import annotations
 import streamlit as st
@@ -90,6 +93,17 @@ _ENTERPRISE_CSS = """
 .ent-ai-highlight .text { font-size: 13px; color: #c4b5fd; line-height: 1.6; }
 .ent-ai-highlight .text strong { color: #e9d5ff; }
 .ent-divider { border: none; border-top: 1px solid #3b1f6b; margin: 20px 0; }
+
+/* ── Card boundary — kartu paket reguler ── */
+.pkg-card-sep {
+    border: none;
+    border-top: 1px solid #2d3348;
+    margin: 18px 0 24px;
+}
+@media (min-width: 992px) {
+    /* Di desktop kolom sudah sejajar, garis pemisah antar-atribut tidak perlu terlalu tebal */
+    .pkg-card-sep { margin: 12px 0 16px; }
+}
 </style>
 """
 
@@ -109,42 +123,65 @@ def build_pricing_page() -> str | None:
 
     pkg_data = _get_pricing_data()
 
-    # Paket reguler (tanpa enterprise) untuk baris kolom
+    # Paket reguler (tanpa enterprise)
     regular_keys = [k for k in PRICING_DISPLAY_ORDER if k in pkg_data and k != "enterprise"]
-    display_keys = regular_keys  # untuk grid kolom
+    display_keys = regular_keys
 
     # ── Hero ──────────────────────────────────────────────────────
     st.markdown("## 🚀 Data Driven Analyst FnB")
     st.caption("Pilih paket yang sesuai dengan kebutuhan bisnis Anda. Mulai gratis, upgrade kapan saja.")
     st.divider()
 
-    # ── Baris 1: Badge populer (sejajar) ─────────────────────────
-    badge_cols = st.columns(len(display_keys), gap="medium")
+    # ── Pre-fetch helper imports sekali saja (bukan di dalam loop) ─
+    try:
+        from database import get_package_tab_access, get_package_use_database
+        from packages import get_allowed_tabs
+        _db_available = True
+    except Exception:
+        _db_available = False
+
+    def _resolve_tabs_and_db(key: str, cfg: dict) -> tuple[list[str], bool]:
+        if _db_available:
+            try:
+                db_overrides = get_package_tab_access(key)
+                tabs = get_allowed_tabs(key, db_overrides if db_overrides else None)
+                use_db = get_package_use_database(key)
+                return tabs, use_db
+            except Exception:
+                pass
+        return cfg["tabs"], cfg.get("use_database", False)
+
+    max_tabs = max(len(_resolve_tabs_and_db(k, pkg_data[k])[0]) for k in display_keys)
+
+    # ══════════════════════════════════════════════════════════════
+    # SATU set kolom untuk SEMUA konten per-paket.
+    # Ini kunci fix mobile: setiap kolom berisi kartu paket LENGKAP
+    # (badge → nama → harga → deskripsi → fitur → tombol), sehingga saat
+    # Streamlit collapse ke layar sempit, urutan tampil tetap per-kartu utuh,
+    # bukan tercampur per-jenis elemen seperti sebelumnya.
+    # ══════════════════════════════════════════════════════════════
+    pkg_cols = st.columns(len(display_keys), gap="medium")
+
     for i, key in enumerate(display_keys):
         cfg = pkg_data[key]
-        with badge_cols[i]:
+        tabs, use_db = _resolve_tabs_and_db(key, cfg)
+
+        with pkg_cols[i]:
+            # Badge populer
             if cfg.get("highlight"):
                 st.success("⭐ PALING POPULER")
             else:
-                st.empty()
+                st.write("")  # jaga tinggi konsisten tanpa memaksa kolom kosong
 
-    # ── Baris 2: Nama paket ───────────────────────────────────────
-    name_cols = st.columns(len(display_keys), gap="medium")
-    for i, key in enumerate(display_keys):
-        cfg = pkg_data[key]
-        with name_cols[i]:
+            # Nama paket
             grade = cfg.get("grade")
             if grade:
                 st.markdown(f"### Grade {grade}")
             else:
                 st.markdown(f"### {cfg['name']}")
 
-    # ── Baris 3: Harga ────────────────────────────────────────────
-    price_cols = st.columns(len(display_keys), gap="medium")
-    for i, key in enumerate(display_keys):
-        cfg = pkg_data[key]
-        price = cfg["price_monthly"]
-        with price_cols[i]:
+            # Harga
+            price = cfg["price_monthly"]
             if price == 0:
                 st.markdown("## 🆓 Gratis")
                 st.caption("Tidak perlu kartu kredit")
@@ -152,53 +189,32 @@ def build_pricing_page() -> str | None:
                 st.markdown(f"## {format_price(price)}")
                 st.caption(f"per bulan · atau {format_price(cfg['price_yearly'])}/tahun")
 
-    # ── Baris 4: Deskripsi ────────────────────────────────────────
-    desc_cols = st.columns(len(display_keys), gap="medium")
-    for i, key in enumerate(display_keys):
-        cfg = pkg_data[key]
-        with desc_cols[i]:
+            # Deskripsi
             st.caption(cfg["description"])
+            st.write("")
 
-    st.write("")
-
-    # ── Baris 5: Fitur per paket ──────────────────────────────────
-    max_tabs = max(len(pkg_data[k]["tabs"]) for k in display_keys)
-
-    feat_cols = st.columns(len(display_keys), gap="medium")
-    for i, key in enumerate(display_keys):
-        cfg = pkg_data[key]
-        try:
-            from database import get_package_tab_access, get_package_use_database
-            from packages import get_allowed_tabs
-            db_overrides = get_package_tab_access(key)
-            tabs = get_allowed_tabs(key, db_overrides if db_overrides else None)
-            use_db = get_package_use_database(key)
-        except Exception:
-            tabs = cfg["tabs"]
-            use_db = cfg.get("use_database", False)
-
-        with feat_cols[i]:
-            # ── Badge penyimpanan — nilai jual utama ─────────────
+            # Badge penyimpanan — nilai jual utama
             if use_db:
                 st.markdown(
-                    "<div style=\'background:linear-gradient(90deg,#064e3b,#065f46);"
+                    "<div style='background:linear-gradient(90deg,#064e3b,#065f46);"
                     "border:1px solid #059669;border-radius:6px;padding:5px 10px;"
                     "font-size:11px;font-weight:700;color:#6ee7b7;margin-bottom:10px;"
-                    "display:inline-flex;align-items:center;gap:6px;\'>"
+                    "display:inline-flex;align-items:center;gap:6px;'>"
                     "🗄️ Penyimpanan Database</div>",
                     unsafe_allow_html=True,
                 )
                 st.caption("Data tersimpan permanen, tidak hilang saat refresh")
             else:
                 st.markdown(
-                    "<div style=\'background:#1e2535;border:1px solid #374151;"
+                    "<div style='background:#1e2535;border:1px solid #374151;"
                     "border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;"
                     "color:#9ca3af;margin-bottom:10px;display:inline-flex;"
-                    "align-items:center;gap:6px;\'>"
+                    "align-items:center;gap:6px;'>"
                     "⚡ Mode Sementara</div>",
                     unsafe_allow_html=True,
                 )
                 st.caption("Data in-memory, perlu upload ulang setiap sesi")
+
             st.write("")
             st.caption(f"**{len(tabs)} fitur analitik:**")
             for tab in tabs:
@@ -206,13 +222,9 @@ def build_pricing_page() -> str | None:
             for _ in range(max_tabs - len(tabs)):
                 st.markdown("　")
 
-    st.write("")
+            st.write("")
 
-    # ── Baris 6: Tombol pilih ─────────────────────────────────────
-    btn_cols = st.columns(len(display_keys), gap="medium")
-    for i, key in enumerate(display_keys):
-        cfg = pkg_data[key]
-        with btn_cols[i]:
+            # Tombol pilih
             if key == "free":
                 label = "🎉 Mulai Gratis"
                 btn_type = "primary"
@@ -227,13 +239,15 @@ def build_pricing_page() -> str | None:
                          use_container_width=True, type=btn_type):
                 chosen_package = key
 
+            # Pemisah kartu — krusial di mobile agar tiap paket terlihat
+            # sebagai unit terpisah saat semuanya stack vertikal.
+            st.markdown("<hr class='pkg-card-sep'>", unsafe_allow_html=True)
+
     # ══════════════════════════════════════════════════════════════
     # ENTERPRISE CARD — tampil penuh di bawah paket reguler
     # ══════════════════════════════════════════════════════════════
     if "enterprise" in pkg_data:
         ent = pkg_data["enterprise"]
-
-        st.markdown("<hr style='border-top:1px solid #2d3348; margin: 32px 0 0;'>", unsafe_allow_html=True)
 
         st.markdown("""
         <div class="ent-pricing-card">
@@ -266,14 +280,7 @@ def build_pricing_page() -> str | None:
         </div>
         """, unsafe_allow_html=True)
 
-        # Fitur Enterprise dalam 3 kolom
-        try:
-            from database import get_package_tab_access
-            from packages import get_allowed_tabs
-            db_overrides = get_package_tab_access("enterprise")
-            ent_tabs = get_allowed_tabs("enterprise", db_overrides if db_overrides else None)
-        except Exception:
-            ent_tabs = ent.get("tabs", ALL_TABS)
+        ent_tabs, _ = _resolve_tabs_and_db("enterprise", ent if "tabs" in ent else {"tabs": ALL_TABS, "use_database": True})
 
         col_f1, col_f2, col_f3 = st.columns(3)
         third = len(ent_tabs) // 3 + 1
@@ -292,7 +299,6 @@ def build_pricing_page() -> str | None:
 
         st.write("")
 
-        # Info enterprise khusus — bukan tombol beli langsung
         st.markdown(
             """<div style="background:linear-gradient(135deg,#431407,#3b0764);
                 border:1px solid #c2410c44;border-radius:12px;padding:20px 24px;margin-top:8px">
@@ -314,7 +320,6 @@ def build_pricing_page() -> str | None:
         with col_btn:
             if st.button("🤝 Hubungi Tim Enterprise", key="pick_enterprise",
                          use_container_width=True, type="primary"):
-                # Arahkan ke halaman enterprise contact (bukan register biasa)
                 chosen_package = "enterprise"
         with col_info:
             st.caption("Tidak ada pembayaran di muka. Tim kami yang akan menghubungi Anda untuk diskusi selanjutnya.")
@@ -329,32 +334,24 @@ def build_pricing_page() -> str | None:
             else pkg_data[k]["name"]
             for k in all_display
         ]
-        rows = []
 
-        # Baris pertama: status penyimpanan database
+        # Resolve sekali per paket (bukan di dalam loop tab) untuk hindari
+        # query DB berulang O(tab x paket).
+        resolved = {k: _resolve_tabs_and_db(k, pkg_data[k]) for k in all_display}
+
+        rows = []
         db_row = ["🗄️ Penyimpanan Database"]
         for k in all_display:
-            try:
-                from database import get_package_use_database
-                use_db = get_package_use_database(k)
-            except Exception:
-                use_db = pkg_data[k].get("use_database", False)
+            _, use_db = resolved[k]
             db_row.append("✅ Permanen" if use_db else "⚡ Sementara")
         rows.append(db_row)
 
-        # Spacer
         rows.append(["── Fitur Analitik ──"] + ["" for _ in all_display])
 
         for tab in ALL_TABS:
             row = [tab]
             for k in all_display:
-                try:
-                    from database import get_package_tab_access
-                    from packages import get_allowed_tabs
-                    db_overrides = get_package_tab_access(k)
-                    effective_tabs = get_allowed_tabs(k, db_overrides if db_overrides else None)
-                except Exception:
-                    effective_tabs = pkg_data[k]["tabs"]
+                effective_tabs, _ = resolved[k]
                 row.append("✅" if tab in effective_tabs else "—")
             rows.append(row)
 
@@ -404,8 +401,6 @@ def build_pricing_page() -> str | None:
     st.divider()
 
     # ── Login hint — HANYA tampil jika user BELUM login ──────────
-    # Jika user sudah login (mode upgrade dari dalam app → show_pricing_upgrade),
-    # tombol login disembunyikan karena tidak relevan dan membingungkan.
     try:
         from auth import is_logged_in as _is_logged_in
         _already_logged_in = _is_logged_in()
