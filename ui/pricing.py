@@ -3,6 +3,13 @@
 # FIX MOBILE: gabung render per-paket jadi satu blok kolom (bukan per-atribut)
 # agar saat layar sempit (mobile), Streamlit stack konten per-KARTU yang utuh,
 # bukan tercampur per-jenis elemen (semua nama dulu, lalu semua harga, dst).
+# FIX is_active: paket yang dinonaktifkan admin sekarang disembunyikan
+# dari halaman pricing publik (regular maupun enterprise).
+# FIX CENTERING: saat hanya 1-2 paket aktif, kartu di-center dengan
+# kolom spacer kiri-kanan supaya tidak melebar penuh / terlihat aneh.
+# FIX CARD UI: setiap kartu paket dibungkus st.container(border=True)
+# + konten rata-tengah supaya terlihat seperti kartu pricing yang utuh,
+# bukan teks polos bertumpuk tanpa batas visual.
 
 from __future__ import annotations
 import streamlit as st
@@ -104,6 +111,41 @@ _ENTERPRISE_CSS = """
     /* Di desktop kolom sudah sejajar, garis pemisah antar-atribut tidak perlu terlalu tebal */
     .pkg-card-sep { margin: 12px 0 16px; }
 }
+
+/* ── Konten kartu paket — rata tengah ── */
+.pkg-badge-wrap {
+    text-align: center;
+    margin-bottom: 8px;
+}
+.pkg-name-center {
+    text-align: center;
+    margin: 4px 0 2px;
+}
+.pkg-price-center {
+    text-align: center;
+    margin: 0 0 2px;
+}
+.pkg-caption-center {
+    text-align: center;
+}
+.pkg-storage-badge-wrap {
+    text-align: center;
+    margin: 12px 0 4px;
+}
+.pkg-feature-title {
+    text-align: center;
+    margin-top: 16px;
+    margin-bottom: 8px;
+}
+.pkg-feature-list {
+    max-width: 260px;
+    margin: 0 auto 12px;
+}
+.pkg-feature-list .feat-row {
+    font-size: 14px;
+    color: #d1d5db;
+    padding: 3px 0;
+}
 </style>
 """
 
@@ -117,15 +159,57 @@ def _get_pricing_data() -> dict[str, dict]:
         return PACKAGE_DEFINITIONS
 
 
+def _build_centered_columns(n: int):
+    """
+    Bangun list kolom Streamlit untuk n kartu paket, DI-CENTER ketika
+    n sedikit (1 atau 2) agar tidak melebar penuh / terlihat aneh
+    di layar lebar. Untuk n >= 3, kolom tetap full-width seperti biasa
+    karena secara visual sudah rapi berjajar.
+
+    Return: list objek kolom (hanya kolom-kolom untuk kartu, spacer
+    tidak diikutkan) sepanjang n, siap dipakai `with cols[i]:`.
+    """
+    if n <= 0:
+        return []
+
+    if n == 1:
+        # 1 paket aktif → tampilkan di tengah, lebar dibatasi
+        # rasio [2, 3, 2] artinya kartu mengambil 3/7 lebar halaman,
+        # sisanya jadi spacer kiri-kanan yang sama besar → center.
+        side, card = 2, 3
+        cols = st.columns([side, card, side], gap="medium")
+        return [cols[1]]
+
+    if n == 2:
+        # 2 paket aktif → tampilkan berdampingan di tengah,
+        # masing-masing tidak terlalu lebar.
+        side, card = 1, 2
+        cols = st.columns([side, card, card, side], gap="medium")
+        return [cols[1], cols[2]]
+
+    # 3 paket atau lebih → full width, grid rapi seperti biasa
+    cols = st.columns(n, gap="medium")
+    return list(cols)
+
+
 def build_pricing_page() -> str | None:
     chosen_package = None
     st.markdown(_ENTERPRISE_CSS, unsafe_allow_html=True)
 
     pkg_data = _get_pricing_data()
 
-    # Paket reguler (tanpa enterprise)
-    regular_keys = [k for k in PRICING_DISPLAY_ORDER if k in pkg_data and k != "enterprise"]
+    # Paket reguler (tanpa enterprise) — hanya yang is_active
+    regular_keys = [
+        k for k in PRICING_DISPLAY_ORDER
+        if k in pkg_data
+        and k != "enterprise"
+        and pkg_data[k].get("is_active", True)
+    ]
     display_keys = regular_keys
+
+    if not display_keys:
+        st.warning("Belum ada paket yang tersedia saat ini. Silakan hubungi admin.")
+        return None
 
     # ── Hero ──────────────────────────────────────────────────────
     st.markdown("## 🚀 Data Driven Analyst FnB")
@@ -159,94 +243,150 @@ def build_pricing_page() -> str | None:
     # (badge → nama → harga → deskripsi → fitur → tombol), sehingga saat
     # Streamlit collapse ke layar sempit, urutan tampil tetap per-kartu utuh,
     # bukan tercampur per-jenis elemen seperti sebelumnya.
+    #
+    # FIX CENTERING: kolom dibangun via _build_centered_columns() —
+    # otomatis menambahkan spacer kiri-kanan saat paket aktif cuma 1-2,
+    # sehingga kartu tampil di tengah dan tidak melebar penuh halaman.
+    #
+    # FIX CARD UI: setiap kartu dibungkus st.container(border=True)
+    # supaya terlihat sebagai satu kotak utuh, bukan teks polos.
     # ══════════════════════════════════════════════════════════════
-    pkg_cols = st.columns(len(display_keys), gap="medium")
+    pkg_cols = _build_centered_columns(len(display_keys))
 
     for i, key in enumerate(display_keys):
         cfg = pkg_data[key]
         tabs, use_db = _resolve_tabs_and_db(key, cfg)
 
         with pkg_cols[i]:
-            # Badge populer
-            if cfg.get("highlight"):
-                st.success("⭐ PALING POPULER")
-            else:
-                st.write("")  # jaga tinggi konsisten tanpa memaksa kolom kosong
+            with st.container(border=True):
+                # Badge populer — rata tengah
+                if cfg.get("highlight"):
+                    st.markdown(
+                        "<div class='pkg-badge-wrap'>"
+                        "<span style='background:linear-gradient(90deg,#059669,#10b981);"
+                        "color:#fff;font-size:11px;font-weight:700;letter-spacing:.06em;"
+                        "padding:4px 14px;border-radius:20px;'>⭐ PALING POPULER</span>"
+                        "</div>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
 
-            # Nama paket
-            grade = cfg.get("grade")
-            if grade:
-                st.markdown(f"### Grade {grade}")
-            else:
-                st.markdown(f"### {cfg['name']}")
-
-            # Harga
-            price = cfg["price_monthly"]
-            if price == 0:
-                st.markdown("## 🆓 Gratis")
-                st.caption("Tidak perlu kartu kredit")
-            else:
-                st.markdown(f"## {format_price(price)}")
-                st.caption(f"per bulan · atau {format_price(cfg['price_yearly'])}/tahun")
-
-            # Deskripsi
-            st.caption(cfg["description"])
-            st.write("")
-
-            # Badge penyimpanan — nilai jual utama
-            if use_db:
+                # Nama paket — rata tengah
+                grade = cfg.get("grade")
+                pkg_title = f"Grade {grade}" if grade else cfg["name"]
                 st.markdown(
-                    "<div style='background:linear-gradient(90deg,#064e3b,#065f46);"
-                    "border:1px solid #059669;border-radius:6px;padding:5px 10px;"
-                    "font-size:11px;font-weight:700;color:#6ee7b7;margin-bottom:10px;"
-                    "display:inline-flex;align-items:center;gap:6px;'>"
-                    "🗄️ Penyimpanan Database</div>",
+                    f"<h3 class='pkg-name-center'>{pkg_title}</h3>",
                     unsafe_allow_html=True,
                 )
-                st.caption("Data tersimpan permanen, tidak hilang saat refresh")
-            else:
+
+                # Harga — rata tengah, jadi fokus utama kartu
+                price = cfg["price_monthly"]
+                if price == 0:
+                    st.markdown(
+                        "<h2 class='pkg-price-center'>🆓 Gratis</h2>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        "<p class='pkg-caption-center' style='color:#8892a4;font-size:13px'>"
+                        "Tidak perlu kartu kredit</p>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"<h2 class='pkg-price-center'>{format_price(price)}</h2>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        f"<p class='pkg-caption-center' style='color:#8892a4;font-size:13px'>"
+                        f"per bulan · atau {format_price(cfg['price_yearly'])}/tahun</p>",
+                        unsafe_allow_html=True,
+                    )
+
+                # Deskripsi — rata tengah
                 st.markdown(
-                    "<div style='background:#1e2535;border:1px solid #374151;"
-                    "border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;"
-                    "color:#9ca3af;margin-bottom:10px;display:inline-flex;"
-                    "align-items:center;gap:6px;'>"
-                    "⚡ Mode Sementara</div>",
+                    f"<p class='pkg-caption-center' style='color:#9ca3af;font-size:13px;"
+                    f"margin-top:8px'>{cfg['description']}</p>",
                     unsafe_allow_html=True,
                 )
-                st.caption("Data in-memory, perlu upload ulang setiap sesi")
 
-            st.write("")
-            st.caption(f"**{len(tabs)} fitur analitik:**")
-            for tab in tabs:
-                st.markdown(f"✅ {tab}")
-            for _ in range(max_tabs - len(tabs)):
-                st.markdown("　")
+                # Badge penyimpanan — nilai jual utama, rata tengah
+                if use_db:
+                    st.markdown(
+                        "<div class='pkg-storage-badge-wrap'>"
+                        "<span style='background:linear-gradient(90deg,#064e3b,#065f46);"
+                        "border:1px solid #059669;border-radius:6px;padding:5px 12px;"
+                        "font-size:11px;font-weight:700;color:#6ee7b7;"
+                        "display:inline-flex;align-items:center;gap:6px;'>"
+                        "🗄️ Penyimpanan Database</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        "<p class='pkg-caption-center' style='color:#8892a4;font-size:12px'>"
+                        "Data tersimpan permanen, tidak hilang saat refresh</p>",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        "<div class='pkg-storage-badge-wrap'>"
+                        "<span style='background:#1e2535;border:1px solid #374151;"
+                        "border-radius:6px;padding:5px 12px;font-size:11px;font-weight:700;"
+                        "color:#9ca3af;display:inline-flex;align-items:center;gap:6px;'>"
+                        "⚡ Mode Sementara</span></div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown(
+                        "<p class='pkg-caption-center' style='color:#8892a4;font-size:12px'>"
+                        "Data in-memory, perlu upload ulang setiap sesi</p>",
+                        unsafe_allow_html=True,
+                    )
 
-            st.write("")
+                # Daftar fitur — judul rata tengah, list sedikit di-indent ke tengah
+                st.markdown(
+                    f"<p class='pkg-feature-title' style='color:#d1d5db;font-size:13px;"
+                    f"font-weight:600'>{len(tabs)} fitur analitik:</p>",
+                    unsafe_allow_html=True,
+                )
 
-            # Tombol pilih
-            if key == "free":
-                label = "🎉 Mulai Gratis"
-                btn_type = "primary"
-            elif cfg.get("highlight"):
-                label = "🌟 Pilih Paket Ini"
-                btn_type = "primary"
-            else:
-                label = "Pilih Paket Ini"
-                btn_type = "secondary"
+                feat_html = "<div class='pkg-feature-list'>"
+                for tab in tabs:
+                    feat_html += f"<div class='feat-row'>✅&nbsp;&nbsp;{tab}</div>"
+                for _ in range(max_tabs - len(tabs)):
+                    feat_html += "<div class='feat-row'>&nbsp;</div>"
+                feat_html += "</div>"
+                st.markdown(feat_html, unsafe_allow_html=True)
 
-            if st.button(label, key=f"pick_{key}",
-                         use_container_width=True, type=btn_type):
-                chosen_package = key
+                st.write("")
 
-            # Pemisah kartu — krusial di mobile agar tiap paket terlihat
-            # sebagai unit terpisah saat semuanya stack vertikal.
-            st.markdown("<hr class='pkg-card-sep'>", unsafe_allow_html=True)
+                # Tombol pilih
+                if key == "free":
+                    label = "🎉 Mulai Gratis"
+                    btn_type = "primary"
+                elif cfg.get("highlight"):
+                    label = "🌟 Pilih Paket Ini"
+                    btn_type = "primary"
+                else:
+                    label = "Pilih Paket Ini"
+                    btn_type = "secondary"
+
+                if st.button(label, key=f"pick_{key}",
+                             use_container_width=True, type=btn_type):
+                    chosen_package = key
+
+    # Jarak setelah baris kartu, sebelum bagian Enterprise / konten selanjutnya
+    st.write("")
+    st.write("")
 
     # ══════════════════════════════════════════════════════════════
     # ENTERPRISE CARD — tampil penuh di bawah paket reguler
+    # (sudah full-width secara desain, jadi tidak perlu centering)
     # ══════════════════════════════════════════════════════════════
-    if "enterprise" in pkg_data:
+    enterprise_active = (
+        "enterprise" in pkg_data
+        and pkg_data["enterprise"].get("is_active", True)
+    )
+
+    if enterprise_active:
         ent = pkg_data["enterprise"]
 
         st.markdown("""
@@ -328,7 +468,8 @@ def build_pricing_page() -> str | None:
 
     # ── Tabel perbandingan ────────────────────────────────────────
     with st.expander("📊 Lihat Perbandingan Fitur Lengkap"):
-        all_display = display_keys + (["enterprise"] if "enterprise" in pkg_data else [])
+        all_display = display_keys + (["enterprise"] if enterprise_active else [])
+
         header = ["Fitur / Tab"] + [
             f"Grade {pkg_data[k]['grade']}" if pkg_data[k].get("grade")
             else pkg_data[k]["name"]
