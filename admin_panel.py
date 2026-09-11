@@ -150,6 +150,39 @@ def _section(title: str) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────
+# FLASH MESSAGE — notifikasi yang bertahan lintas st.rerun()
+# ──────────────────────────────────────────────────────────────────
+# Masalah: st.success()/st.warning() yang langsung diikuti st.rerun()
+# tidak sempat terlihat user, dan jika berada di dalam expander
+# (expanded=False) akan ikut tersembunyi karena expander kembali
+# collapse setelah rerun.
+# Solusi: simpan pesan ke session_state SEBELUM st.rerun(), lalu
+# render SEKALI di luar tab/expander manapun (paling atas panel)
+# setelah halaman render ulang, lalu otomatis dihapus.
+
+def _flash(message: str, kind: str = "success") -> None:
+    """Panggil ini SEBELUM st.rerun() untuk menyimpan notifikasi."""
+    st.session_state["_admin_flash"] = {"kind": kind, "message": message}
+
+
+def _render_flash() -> None:
+    """Panggil ini SEKALI di paling atas build_admin_panel()."""
+    flash = st.session_state.pop("_admin_flash", None)
+    if not flash:
+        return
+    kind = flash.get("kind", "success")
+    msg = flash.get("message", "")
+    if kind == "success":
+        st.success(msg)
+    elif kind == "warning":
+        st.warning(msg)
+    elif kind == "error":
+        st.error(msg)
+    else:
+        st.info(msg)
+
+
+# ──────────────────────────────────────────────────────────────────
 # TAB: OVERVIEW
 # ──────────────────────────────────────────────────────────────────
 
@@ -273,9 +306,9 @@ def _tab_users() -> None:
                         write_audit_log(get_current_username(), "create_user",
                                         role="admin", target_type="user", target_id=new_username)
                         if not new_password.strip():
-                            st.success(f"{msg} Password sementara: **{pwd}**")
+                            _flash(f"{msg} Password sementara: **{pwd}**")
                         else:
-                            st.success(msg)
+                            _flash(msg)
                         st.rerun()
                     else:
                         st.error(msg)
@@ -324,7 +357,7 @@ def _tab_users() -> None:
                     if ok:
                         write_audit_log(get_current_username(), "update_user",
                                         role="admin", target_type="user", target_id=str(sel_user["id"]))
-                        st.success(msg)
+                        _flash(msg)
                         st.rerun()
                     else:
                         st.error(msg)
@@ -447,7 +480,7 @@ def _tab_users() -> None:
                                     target_id=u.get("username", ""),
                                     detail=f"enterprise activated amount=custom note={note_val[:50]}",
                                 )
-                                st.success(f"✅ Akun Enterprise **{u.get('username')}** diaktifkan hingga {end}!")
+                                _flash(f"✅ Akun Enterprise **{u.get('username')}** diaktifkan hingga {end}!")
                                 st.rerun()
                             else:
                                 st.error("Gagal mengaktifkan lisensi.")
@@ -462,7 +495,7 @@ def _tab_users() -> None:
                                     target_id=u.get("username",""),
                                     detail="enterprise registration rejected",
                                 )
-                                st.warning(f"Pendaftaran Enterprise '{u.get('username')}' ditolak.")
+                                _flash(f"Pendaftaran Enterprise '{u.get('username')}' ditolak.", kind="warning")
                                 st.rerun()
 
 
@@ -531,7 +564,7 @@ def _tab_user_actions() -> None:
                                 role="admin", target_type="user",
                                 target_id=sel_user["username"],
                                 detail=f"is_active={'0' if is_active else '1'}")
-                st.success(f"User **{sel_user['username']}** {'dinonaktifkan' if is_active else 'diaktifkan'}.")
+                _flash(f"User **{sel_user['username']}** {'dinonaktifkan' if is_active else 'diaktifkan'}.")
                 st.rerun()
             else:
                 st.error(msg)
@@ -549,8 +582,8 @@ def _tab_user_actions() -> None:
                                     role="admin", target_type="license",
                                     target_id=str(sel_user["license_id"]),
                                     detail=f"status={new_lic_status}")
-                    st.success(msg)
                     st.cache_data.clear()
+                    _flash(msg)
                     st.rerun()
                 else:
                     st.error(msg)
@@ -588,8 +621,8 @@ def _tab_user_actions() -> None:
                                 role="admin", target_type="license",
                                 target_id=sel_user["username"],
                                 detail=f"pkg={new_pkg} days={extend_days}")
-                st.success(msg)
                 st.cache_data.clear()
+                _flash(msg)
                 st.rerun()
             else:
                 st.error(msg)
@@ -613,8 +646,8 @@ def _tab_user_actions() -> None:
                 if ok:
                     write_audit_log(get_current_username(), "bulk_suspend",
                                     role="admin", detail=f"user_ids={sel_ids}")
-                    st.success(msg)
                     st.cache_data.clear()
+                    _flash(msg)
                     st.rerun()
                 else:
                     st.error(msg)
@@ -624,8 +657,8 @@ def _tab_user_actions() -> None:
                 if ok:
                     write_audit_log(get_current_username(), "bulk_activate",
                                     role="admin", detail=f"user_ids={sel_ids}")
-                    st.success(msg)
                     st.cache_data.clear()
+                    _flash(msg)
                     st.rerun()
                 else:
                     st.error(msg)
@@ -637,8 +670,8 @@ def _tab_user_actions() -> None:
                 if ok:
                     write_audit_log(get_current_username(), "bulk_change_package",
                                     role="admin", detail=f"user_ids={sel_ids} pkg={bulk_pkg}")
-                    st.success(msg)
                     st.cache_data.clear()
+                    _flash(msg)
                     st.rerun()
                 else:
                     st.error(msg)
@@ -728,7 +761,7 @@ def _tab_licenses() -> None:
                                             role="admin", target_type="license",
                                             target_id=sel_user_data["username"],
                                             detail=f"pkg={sel_pkg} end={sel_end}")
-                            st.success(msg)
+                            _flash(msg)
                             st.rerun()
                         else:
                             st.error(msg)
@@ -772,7 +805,7 @@ def _tab_licenses() -> None:
                                         role="admin", target_type="license",
                                         target_id=str(sel_lic["id"]))
                         st.cache_data.clear()  # user ybs langsung dapat paket/status baru
-                        st.success(msg)
+                        _flash(msg)
                         st.rerun()
                     else:
                         st.error(msg)
@@ -886,12 +919,12 @@ def _tab_payments() -> None:
                                             target_id=str(p["id"]),
                                             detail=f"user={p['username']} amount={p['amount']}")
                             if lic_info:
-                                st.success(
+                                _flash(
                                     f"✅ Dikonfirmasi! Lisensi **{lic_info['package_key'].title()}** "
                                     f"aktif hingga **{lic_info['end_date']}**"
                                 )
                             else:
-                                st.success("✅ Pembayaran dikonfirmasi.")
+                                _flash("✅ Pembayaran dikonfirmasi.")
                             st.cache_data.clear()
                             st.rerun()
                         else:
@@ -919,7 +952,7 @@ def _tab_payments() -> None:
                                                     role="admin", target_type="payment",
                                                     target_id=str(p["id"]),
                                                     detail=f"reason={reason}")
-                                    st.warning("❌ Pembayaran ditolak.")
+                                    _flash("❌ Pembayaran ditolak.", kind="warning")
                                     st.session_state.pop(reject_key, None)
                                     st.rerun()
                                 else:
@@ -1008,17 +1041,18 @@ def _tab_payments() -> None:
                         license_id=lic_id, period_label=pay_period, notes=pay_notes,
                     )
                     if ok:
+                        _info_extra = ""
                         if pay_status == "confirmed" and pay_id:
                             c_ok, _, c_lic = confirm_payment(pay_id, get_current_username())
                             if c_ok and c_lic:
-                                st.info(
-                                    f"🔑 Lisensi **{sel_u['username']}** diaktifkan "
+                                _info_extra = (
+                                    f" 🔑 Lisensi **{sel_u['username']}** diaktifkan "
                                     f"hingga **{c_lic['end_date']}**"
                                 )
                         write_audit_log(get_current_username(), "create_payment",
                                         role="admin", target_type="payment",
                                         target_id=sel_u["username"])
-                        st.success(msg)
+                        _flash(msg + _info_extra)
                         st.rerun()
                     else:
                         st.error(msg)
@@ -1192,58 +1226,134 @@ def _tab_packages() -> None:
                     detail=f"use_database={'true' if val else 'false'}",
                 )
             st.cache_data.clear()
-            st.success(f"✅ {len(db_changed)} paket diperbarui. Berlaku segera untuk semua user.")
+            _flash(f"✅ {len(db_changed)} paket diperbarui. Berlaku segera untuk semua user.")
             st.rerun()
 
     st.divider()
 
     # ══════════════════════════════════════════════════════════════
-    # EDIT HARGA & DETAIL PAKET
+    # EDIT HARGA & DETAIL SEMUA PAKET SEKALIGUS (Bulk Editor)
+    # Semua paket bisa diedit langsung di tabel — Nama, Harga Bulanan,
+    # Harga Tahunan, Status Aktif, Deskripsi — lalu SATU tombol
+    # menyimpan semua baris yang berubah sekaligus.
     # ══════════════════════════════════════════════════════════════
-    with st.expander("✏️ Edit Harga & Detail Paket", expanded=False):
-        sel_pkg_edit = st.selectbox(
-            "Pilih Paket", PACKAGE_ORDER,
-            format_func=lambda k: (
-                f"Grade {PACKAGE_DEFINITIONS[k]['grade']}"
-                if PACKAGE_DEFINITIONS[k].get("grade")
-                else PACKAGE_DEFINITIONS[k]["name"]
-            ),
-            key="pkg_edit_select",
+    with st.expander("✏️ Edit Harga & Detail Semua Paket (Simpan Sekaligus)", expanded=False):
+        st.caption(
+            "Ubah kolom yang diperlukan langsung di tabel di bawah — bisa beberapa "
+            "paket sekaligus — lalu klik **Simpan Semua Perubahan** satu kali saja."
         )
-        db_row = pkg_map.get(sel_pkg_edit, {})
-        cfg    = PACKAGE_DEFINITIONS[sel_pkg_edit]
 
-        with st.form("form_edit_package"):
-            c1, c2 = st.columns(2)
-            with c1:
-                ep_name = st.text_input("Nama Paket", value=db_row.get("name", cfg["name"]))
-                ep_pm   = st.number_input("Harga Bulanan (Rp)", min_value=0,
-                                          value=db_row.get("price_monthly", cfg["price_monthly"]), step=10_000)
-            with c2:
-                ep_py     = st.number_input("Harga Tahunan (Rp)", min_value=0,
-                                            value=db_row.get("price_yearly", cfg["price_yearly"]), step=100_000)
-                ep_active = st.selectbox("Status Paket", [1, 0],
-                                         index=0 if db_row.get("is_active", 1) else 1,
-                                         format_func=lambda x: "🟢 Aktif" if x else "🔴 Nonaktif")
-            ep_desc = st.text_area("Deskripsi", value=db_row.get("description", cfg["description"]))
+        # Bangun baris data untuk editor, satu baris = satu paket
+        _edit_rows_source = []
+        for key in PACKAGE_ORDER:
+            cfg    = PACKAGE_DEFINITIONS[key]
+            db_row = pkg_map.get(key, {})
+            grade  = cfg.get("grade")
+            _edit_rows_source.append({
+                "package_key"  : key,
+                "Paket"        : f"Grade {grade}" if grade else cfg["name"],
+                "Nama Paket"   : db_row.get("name", cfg["name"]),
+                "Harga Bulanan": int(db_row.get("price_monthly", cfg["price_monthly"])),
+                "Harga Tahunan": int(db_row.get("price_yearly", cfg["price_yearly"])),
+                "Status Aktif" : bool(db_row.get("is_active", 1)),
+                "Deskripsi"    : db_row.get("description", cfg["description"]),
+            })
 
-            if st.form_submit_button("💾 Simpan", type="primary"):
-                ok, msg = update_package_in_db(
-                    sel_pkg_edit,
-                    name=ep_name,
-                    price_monthly=int(ep_pm),
-                    price_yearly=int(ep_py),
-                    description=ep_desc,
-                    is_active=ep_active,
-                )
-                if ok:
-                    write_audit_log(get_current_username(), "update_package",
-                                    role="admin", target_type="package", target_id=sel_pkg_edit)
+        df_pkg_edit = pd.DataFrame(_edit_rows_source)
+
+        edited_pkg_df = st.data_editor(
+            df_pkg_edit,
+            key="pkg_bulk_edit_editor",
+            hide_index=True,
+            use_container_width=True,
+            num_rows="fixed",  # tidak boleh tambah/hapus baris
+            column_config={
+                "package_key": None,  # sembunyikan kolom teknis
+                "Paket": st.column_config.TextColumn(
+                    "Paket", disabled=True, help="Identitas paket — tidak bisa diubah di sini"
+                ),
+                "Nama Paket": st.column_config.TextColumn(
+                    "Nama Paket", width="medium"
+                ),
+                "Harga Bulanan": st.column_config.NumberColumn(
+                    "Harga Bulanan (Rp)", min_value=0, step=10_000, format="Rp %d"
+                ),
+                "Harga Tahunan": st.column_config.NumberColumn(
+                    "Harga Tahunan (Rp)", min_value=0, step=100_000, format="Rp %d"
+                ),
+                "Status Aktif": st.column_config.CheckboxColumn(
+                    "🟢 Aktif?", help="Centang = paket aktif dan tampil di halaman pricing"
+                ),
+                "Deskripsi": st.column_config.TextColumn(
+                    "Deskripsi", width="large"
+                ),
+            },
+        )
+
+        col_save_all, col_reset_edit = st.columns([2, 1])
+
+        with col_save_all:
+            if st.button(
+                "💾 Simpan Semua Perubahan",
+                type="primary",
+                use_container_width=True,
+                key="save_all_pkg_edit_btn",
+            ):
+                _updated_keys = []
+                _errors = []
+
+                for i, row in edited_pkg_df.iterrows():
+                    key  = row["package_key"]
+                    orig = _edit_rows_source[i]
+
+                    updates = {}
+                    if row["Nama Paket"] != orig["Nama Paket"]:
+                        updates["name"] = row["Nama Paket"]
+                    if int(row["Harga Bulanan"]) != orig["Harga Bulanan"]:
+                        updates["price_monthly"] = int(row["Harga Bulanan"])
+                    if int(row["Harga Tahunan"]) != orig["Harga Tahunan"]:
+                        updates["price_yearly"] = int(row["Harga Tahunan"])
+                    if bool(row["Status Aktif"]) != orig["Status Aktif"]:
+                        updates["is_active"] = int(bool(row["Status Aktif"]))
+                    if row["Deskripsi"] != orig["Deskripsi"]:
+                        updates["description"] = row["Deskripsi"]
+
+                    if not updates:
+                        continue  # baris ini tidak berubah, skip
+
+                    ok, msg = update_package_in_db(key, **updates)
+                    if ok:
+                        _updated_keys.append(key)
+                        write_audit_log(
+                            get_current_username(), "update_package",
+                            role="admin", target_type="package", target_id=key,
+                            detail=str(updates),
+                        )
+                    else:
+                        _errors.append(f"{key}: {msg}")
+
+                if _errors:
+                    st.error("Sebagian gagal disimpan:\n" + "\n".join(_errors))
+
+                if _updated_keys:
                     st.cache_data.clear()
-                    st.success(msg)
+                    _flash(
+                        f"✅ {len(_updated_keys)} paket diperbarui: "
+                        f"{', '.join(_updated_keys)}"
+                    )
                     st.rerun()
-                else:
-                    st.error(msg)
+                elif not _errors:
+                    st.info("Tidak ada perubahan untuk disimpan.")
+
+        with col_reset_edit:
+            if st.button(
+                "↩️ Batalkan Perubahan",
+                use_container_width=True,
+                key="cancel_pkg_edit_btn",
+            ):
+                # Hapus state editor supaya tabel kembali menampilkan nilai asli dari DB
+                st.session_state.pop("pkg_bulk_edit_editor", None)
+                st.rerun()
 
     st.divider()
 
@@ -1304,7 +1414,7 @@ def _tab_packages() -> None:
                             role="admin", target_type="package", target_id=sel_pkg_access,
                             detail=str(changed))
             st.cache_data.clear()  # paksa semua user session baca ulang tab access dari DB
-            st.success(f"✅ {len(changed)} perubahan disimpan.")
+            _flash(f"✅ {len(changed)} perubahan disimpan.")
             st.rerun()
 
     with col_reset:
@@ -1321,7 +1431,7 @@ def _tab_packages() -> None:
                 write_audit_log(get_current_username(), "reset_tab_access",
                                 role="admin", target_type="package", target_id=sel_pkg_access)
                 st.cache_data.clear()  # paksa user dashboard baca ulang dari DB
-                st.success(msg)
+                _flash(msg)
                 st.rerun()
             else:
                 st.error(msg)
@@ -1399,7 +1509,8 @@ def _tab_packages() -> None:
                 role="admin", target_type="package", target_id="all",
                 detail=str(bulk_changed),
             )
-            st.success(f"✅ {total_bulk} perubahan disimpan untuk {len(bulk_changed)} paket.")
+            st.cache_data.clear()
+            _flash(f"✅ {total_bulk} perubahan disimpan untuk {len(bulk_changed)} paket.")
             st.rerun()
 
     with col_breset:
@@ -1420,7 +1531,8 @@ def _tab_packages() -> None:
                 get_current_username(), "bulk_reset_all_tab_access",
                 role="admin", target_type="package", target_id="all",
             )
-            st.success("✅ Semua paket direset ke pengaturan default.")
+            st.cache_data.clear()
+            _flash("✅ Semua paket direset ke pengaturan default.")
             st.rerun()
 
     st.divider()
@@ -1793,6 +1905,12 @@ def build_admin_panel() -> None:
         return
 
     st.markdown(_ADMIN_CSS, unsafe_allow_html=True)
+
+    # ── Tampilkan notifikasi hasil aksi sebelumnya (flash message) ──
+    # Diletakkan di sini (paling atas, di luar tab/expander manapun)
+    # agar selalu terlihat setelah st.rerun(), tidak peduli tab mana
+    # yang sedang aktif atau expander mana yang sedang collapse.
+    _render_flash()
 
     st.markdown(
         f"""<div class="ap-topbar">
