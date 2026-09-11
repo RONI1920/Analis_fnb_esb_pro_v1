@@ -38,16 +38,44 @@ from packages import (
 )
 
 # ─────────────────────────────────────────────
-# LOCAL STORAGE — lazy init (harus di dalam runtime Streamlit)
+# LOCAL STORAGE — init pakai st.cache_resource
 # ─────────────────────────────────────────────
+# Catatan dari dokumentasi resmi streamlit-local-storage:
+# component ini TIDAK bisa dipanggil "on demand" secara reliable kalau
+# instance-nya dibuat ulang tiap script run. Pembuat library secara
+# eksplisit merekomendasikan caching inisialisasi via st.cache_resource
+# (atau st.cache_data) supaya instance component + nilai yang sudah
+# di-resolve dari browser tetap konsisten lintas rerun.
 
-_localS = None
 
+@st.cache_resource
 def _get_local_storage():
-    global _localS
-    if _localS is None:
-        _localS = LocalStorage()
-    return _localS
+    return LocalStorage()
+
+
+def _extract_ls_value(raw, item_key: str):
+    """
+    Beberapa versi streamlit-local-storage TIDAK mengembalikan value
+    sebagai string langsung — melainkan sebagai dict (mis. seluruh isi
+    local storage, atau wrapper generic). Coba beberapa pola umum
+    sebelum menyerah dan menganggap belum ada value:
+      1. dict berisi banyak item, item_key kita ada di dalamnya
+      2. wrapper generic {"value": "..."}
+      3. dict dengan tepat satu entri -> ambil apa pun isinya
+    """
+    if isinstance(raw, str):
+        return raw if raw else None
+    if isinstance(raw, dict):
+        if item_key in raw and isinstance(raw[item_key], str) and raw[item_key]:
+            return raw[item_key]
+        if "value" in raw and isinstance(raw["value"], str) and raw["value"]:
+            return raw["value"]
+        if len(raw) == 1:
+            only_val = next(iter(raw.values()))
+            if isinstance(only_val, str) and only_val:
+                return only_val
+    return None
+
 
 # ─────────────────────────────────────────────
 # JWT CONFIG
@@ -63,6 +91,7 @@ if not _secret_from_env:
 
 if not _secret_from_env or len(_secret_from_env) < 32:
     import warnings, os as _os
+
     _env_mode = _os.environ.get("FNB_ENV", "development")
     if _env_mode == "production":
         raise RuntimeError(
@@ -78,12 +107,13 @@ if not _secret_from_env or len(_secret_from_env) < 32:
     _secret_from_env = "dev-only-secret-not-for-production-use-min32!"
 
 SECRET_KEY = _secret_from_env
-ALGORITHM  = "HS256"
+ALGORITHM = "HS256"
 
 # Baca durasi session dari config (bukan hardcoded)
 from config import SESSION_CONFIG
-_SESSION_HOURS   = SESSION_CONFIG["session_hours"]   # default 8 jam
-_REMEMBER_DAYS   = SESSION_CONFIG["remember_days"]   # default 30 hari
+
+_SESSION_HOURS = SESSION_CONFIG["session_hours"]  # default 8 jam
+_REMEMBER_DAYS = SESSION_CONFIG["remember_days"]  # default 30 hari
 
 # ─────────────────────────────────────────────
 # SECURITY
@@ -96,20 +126,21 @@ _LOCKOUT_MINUTES = 15
 # SESSION KEYS
 # ─────────────────────────────────────────────
 
-_KEY_LOGGED_IN  = "auth_logged_in"
-_KEY_USER_ID    = "auth_user_id"
-_KEY_USERNAME   = "auth_username"
-_KEY_ROLE       = "auth_role"
-_KEY_FULL_NAME  = "auth_full_name"
-_KEY_PKG_KEY    = "auth_package_key"
+_KEY_LOGGED_IN = "auth_logged_in"
+_KEY_USER_ID = "auth_user_id"
+_KEY_USERNAME = "auth_username"
+_KEY_ROLE = "auth_role"
+_KEY_FULL_NAME = "auth_full_name"
+_KEY_PKG_KEY = "auth_package_key"
 _KEY_LICENSE_ID = "auth_license_id"
-_KEY_END_DATE   = "auth_license_end_date"
-_KEY_STATUS     = "auth_license_status"
-_KEY_TOKEN      = "auth_jwt_token"
+_KEY_END_DATE = "auth_license_end_date"
+_KEY_STATUS = "auth_license_status"
+_KEY_TOKEN = "auth_jwt_token"
 
 # ─────────────────────────────────────────────
 # JWT
 # ─────────────────────────────────────────────
+
 
 def create_token(user: dict, remember_me: bool = False) -> str:
     if remember_me:
@@ -117,11 +148,11 @@ def create_token(user: dict, remember_me: bool = False) -> str:
     else:
         duration = timedelta(hours=_SESSION_HOURS)
     payload = {
-        "user_id"    : user["id"],
-        "username"   : user["username"],
-        "role"       : user["role"],
+        "user_id": user["id"],
+        "username": user["username"],
+        "role": user["role"],
         "remember_me": remember_me,
-        "exp"        : datetime.utcnow() + duration,
+        "exp": datetime.utcnow() + duration,
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -141,14 +172,16 @@ def verify_token(token: str):
 # BRUTE FORCE PROTECTION
 # ─────────────────────────────────────────────
 
+
 def _get_login_attempts(username: str):
     """Baca jumlah attempt dan waktu lockout dari DB (persisten lintas tab/browser)."""
     try:
         from database import get_db_connection
+
         conn = get_db_connection()
         row = conn.execute(
             "SELECT attempts, locked_until FROM login_attempts WHERE username=?",
-            (username.lower(),)
+            (username.lower(),),
         ).fetchone()
         conn.close()
         if row:
@@ -168,10 +201,13 @@ def _record_failed_attempt(username: str):
     lockout_until = None
     is_locked = False
     if attempts >= _MAX_LOGIN_ATTEMPTS:
-        lockout_until = (datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)).isoformat()
+        lockout_until = (
+            datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
+        ).isoformat()
         is_locked = True
     try:
         from database import get_db_connection
+
         conn = get_db_connection()
         conn.execute(
             """INSERT INTO login_attempts (username, attempts, locked_until, last_attempt)
@@ -180,23 +216,26 @@ def _record_failed_attempt(username: str):
                  attempts=excluded.attempts,
                  locked_until=excluded.locked_until,
                  last_attempt=excluded.last_attempt""",
-            (username.lower(), attempts, lockout_until)
+            (username.lower(), attempts, lockout_until),
         )
         conn.commit()
         conn.close()
     except Exception:
         # Fallback ke session state
         key_attempts = f"_login_attempts_{username}"
-        key_lockout  = f"_login_lockout_{username}"
+        key_lockout = f"_login_lockout_{username}"
         st.session_state[key_attempts] = attempts
         if is_locked:
-            st.session_state[key_lockout] = datetime.now() + timedelta(minutes=_LOCKOUT_MINUTES)
+            st.session_state[key_lockout] = datetime.now() + timedelta(
+                minutes=_LOCKOUT_MINUTES
+            )
     return attempts, is_locked
 
 
 def _reset_login_attempts(username: str):
     try:
         from database import get_db_connection
+
         conn = get_db_connection()
         conn.execute("DELETE FROM login_attempts WHERE username=?", (username.lower(),))
         conn.commit()
@@ -222,18 +261,19 @@ def _is_locked_out(username: str):
 # SESSION HELPERS
 # ─────────────────────────────────────────────
 
+
 def _init_session():
     defaults = {
-        _KEY_LOGGED_IN : False,
-        _KEY_USER_ID   : None,
-        _KEY_USERNAME  : None,
-        _KEY_ROLE      : None,
-        _KEY_FULL_NAME : None,
-        _KEY_PKG_KEY   : None,
+        _KEY_LOGGED_IN: False,
+        _KEY_USER_ID: None,
+        _KEY_USERNAME: None,
+        _KEY_ROLE: None,
+        _KEY_FULL_NAME: None,
+        _KEY_PKG_KEY: None,
         _KEY_LICENSE_ID: None,
-        _KEY_END_DATE  : None,
-        _KEY_STATUS    : None,
-        _KEY_TOKEN     : None,
+        _KEY_END_DATE: None,
+        _KEY_STATUS: None,
+        _KEY_TOKEN: None,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -242,63 +282,78 @@ def _init_session():
 
 def _set_session(user: dict, license_info: dict | None, token: str = ""):
     st.session_state[_KEY_LOGGED_IN] = True
-    st.session_state[_KEY_USER_ID]   = user["id"]
-    st.session_state[_KEY_USERNAME]  = user["username"]
-    st.session_state[_KEY_ROLE]      = user["role"]
+    st.session_state[_KEY_USER_ID] = user["id"]
+    st.session_state[_KEY_USERNAME] = user["username"]
+    st.session_state[_KEY_ROLE] = user["role"]
     st.session_state[_KEY_FULL_NAME] = user.get("full_name") or user["username"]
-    st.session_state[_KEY_TOKEN]     = token
-    st.session_state["user_email"]   = user.get("email") or ""  # Untuk notifikasi
+    st.session_state[_KEY_TOKEN] = token
+    st.session_state["user_email"] = user.get("email") or ""  # Untuk notifikasi
 
     if license_info:
-        st.session_state[_KEY_PKG_KEY]    = license_info["package_key"]
+        st.session_state[_KEY_PKG_KEY] = license_info["package_key"]
         st.session_state[_KEY_LICENSE_ID] = license_info["id"]
-        st.session_state[_KEY_END_DATE]   = license_info["end_date"]
-        st.session_state[_KEY_STATUS]     = license_info["status"]
+        st.session_state[_KEY_END_DATE] = license_info["end_date"]
+        st.session_state[_KEY_STATUS] = license_info["status"]
     else:
-        st.session_state[_KEY_PKG_KEY]    = None
+        st.session_state[_KEY_PKG_KEY] = None
         st.session_state[_KEY_LICENSE_ID] = None
-        st.session_state[_KEY_END_DATE]   = None
-        st.session_state[_KEY_STATUS]     = "no_license"
+        st.session_state[_KEY_END_DATE] = None
+        st.session_state[_KEY_STATUS] = "no_license"
 
 
 def clear_session():
-    # FIX #010: completely wipe session state on logout to prevent
-    # data leakage between users sharing the same browser tab.
+    # Hapus token dari local storage
     try:
-        _get_local_storage().deleteItem("fnb_jwt_token")
+        _get_local_storage().deleteItem("fnb_jwt_token", key="fnb_jwt_token_deleter")
     except Exception:
         pass
+
+    # Bersihkan seluruh session state
+    # (ini juga otomatis mereset _ls_retries, _auth_checked, dll karena
+    # semua key session state ikut terhapus)
     st.session_state.clear()
+
+    # Kembalikan state ke default untuk user yang baru logout
     st.session_state["auth_page"] = "pricing"
+    st.session_state["_auth_checked"] = False
 
 
 # ─────────────────────────────────────────────
 # GETTERS
 # ─────────────────────────────────────────────
 
+
 def is_logged_in():
     return st.session_state.get(_KEY_LOGGED_IN, False)
+
 
 def get_current_user_id():
     return st.session_state.get(_KEY_USER_ID)
 
+
 def get_current_username():
     return st.session_state.get(_KEY_USERNAME, "")
+
 
 def get_current_role():
     return st.session_state.get(_KEY_ROLE, "")
 
+
 def get_current_full_name():
     return st.session_state.get(_KEY_FULL_NAME, "")
+
 
 def get_current_package_key():
     return st.session_state.get(_KEY_PKG_KEY)
 
+
 def get_current_license_end_date():
     return st.session_state.get(_KEY_END_DATE)
 
+
 def get_current_license_status():
     return st.session_state.get(_KEY_STATUS)
+
 
 def is_admin():
     return get_current_role() == "admin"
@@ -309,6 +364,7 @@ def is_admin():
 # Panggil ini di setiap app load agar session selalu sinkron dengan DB.
 # Solusi untuk: "paket tidak update di dashboard setelah admin edit"
 # ─────────────────────────────────────────────
+
 
 def refresh_user_license():
     """
@@ -324,16 +380,16 @@ def refresh_user_license():
     try:
         license_info = get_active_license(user_id)
         if license_info:
-            st.session_state[_KEY_PKG_KEY]    = license_info["package_key"]
+            st.session_state[_KEY_PKG_KEY] = license_info["package_key"]
             st.session_state[_KEY_LICENSE_ID] = license_info["id"]
-            st.session_state[_KEY_END_DATE]   = license_info["end_date"]
-            st.session_state[_KEY_STATUS]     = license_info["status"]
+            st.session_state[_KEY_END_DATE] = license_info["end_date"]
+            st.session_state[_KEY_STATUS] = license_info["status"]
         else:
             # Lisensi tidak aktif / expired / tidak ada
-            st.session_state[_KEY_PKG_KEY]    = None
+            st.session_state[_KEY_PKG_KEY] = None
             st.session_state[_KEY_LICENSE_ID] = None
-            st.session_state[_KEY_END_DATE]   = None
-            st.session_state[_KEY_STATUS]     = "no_license"
+            st.session_state[_KEY_END_DATE] = None
+            st.session_state[_KEY_STATUS] = "no_license"
     except Exception:
         pass  # Jangan crash app jika DB error saat refresh
 
@@ -342,6 +398,7 @@ def refresh_user_license():
 # FIX 2: ACCESS CONTROL — pakai DB override
 # Solusi untuk: "update tab access admin tidak berpengaruh ke user"
 # ─────────────────────────────────────────────
+
 
 def can_access_tab(tab_name: str):
     if is_admin():
@@ -355,6 +412,7 @@ def can_access_tab(tab_name: str):
     # FIX: Ambil override dari DB agar perubahan admin panel langsung berlaku
     try:
         from database import get_package_tab_access
+
         db_overrides = get_package_tab_access(pkg)
     except Exception:
         db_overrides = {}
@@ -372,6 +430,7 @@ def get_tab_lock_message(tab_name: str):
 # ─────────────────────────────────────────────
 # LOGIN
 # ─────────────────────────────────────────────
+
 
 def attempt_login(username: str, password: str, remember_me: bool = False):
     if not username or not password:
@@ -420,7 +479,7 @@ def attempt_login(username: str, password: str, remember_me: bool = False):
     token = create_token(user, remember_me=remember_me)
 
     # SAVE TOKEN TO LOCAL STORAGE
-    _get_local_storage().setItem("fnb_jwt_token", token)
+    _get_local_storage().setItem("fnb_jwt_token", token, key="fnb_jwt_token_writer")
 
     _set_session(user, license_info, token=token)
     update_last_login(user["id"])
@@ -437,6 +496,7 @@ def attempt_login(username: str, password: str, remember_me: bool = False):
 # UI — HALAMAN PRICING (landing page)
 # ─────────────────────────────────────────────
 
+
 def _build_pricing_gate():
     """
     Halaman pertama yang dilihat user yang belum login.
@@ -448,6 +508,7 @@ def _build_pricing_gate():
     """
     try:
         from ui.pricing import build_pricing_page
+
         chosen_package = build_pricing_page()
 
         # FIX: Tangani pilihan paket dari pricing page
@@ -476,6 +537,7 @@ def _build_pricing_gate():
 # ─────────────────────────────────────────────
 # UI — HALAMAN LOGIN
 # ─────────────────────────────────────────────
+
 
 def _build_login_page(show_back_button: bool = True):
     """
@@ -513,13 +575,13 @@ def _build_login_page(show_back_button: bool = True):
         )
 
     with st.form("login_form"):
-        username    = st.text_input("Username")
-        password    = st.text_input("Password", type="password")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
         remember_me = st.checkbox(
             f"🔒 Ingat Saya selama {_REMEMBER_DAYS} hari",
             value=False,
             help=f"Tanpa centang: session berakhir dalam {_SESSION_HOURS} jam. "
-                 f"Dengan centang: tetap login selama {_REMEMBER_DAYS} hari."
+            f"Dengan centang: tetap login selama {_REMEMBER_DAYS} hari.",
         )
         submitted = st.form_submit_button("Masuk", use_container_width=True)
 
@@ -549,6 +611,7 @@ def _build_login_page(show_back_button: bool = True):
 # UI — HALAMAN REGISTER
 # ─────────────────────────────────────────────
 
+
 def _build_register_gate():
     """
     Halaman register. Flow:
@@ -562,6 +625,7 @@ def _build_register_gate():
 
     try:
         from ui.register import build_register_page
+
         reg_data = build_register_page(selected_package_key=pkg_key)
     except Exception as e:
         st.error(f"Halaman registrasi error: {e}")
@@ -610,7 +674,9 @@ def _build_register_gate():
                 end_date=(start + timedelta(days=30)).isoformat(),
             )
 
-        st.success(f"✅ Akun trial gratis berhasil dibuat! Selamat datang, {reg_data['full_name']}!")
+        st.success(
+            f"✅ Akun trial gratis berhasil dibuat! Selamat datang, {reg_data['full_name']}!"
+        )
         st.info("Silakan login menggunakan username dan password yang sudah dibuat.")
         st.session_state.pop("selected_package", None)
         st.session_state.pop("registration_data", None)
@@ -653,19 +719,25 @@ def _build_register_gate():
         # ── Paket berbayar: JANGAN buat akun/lisensi dulu sampai pembayaran dikonfirmasi ─
         # Data hanya disimpan di session state, belum masuk ke DB agar admin panel bersih
         from packages import PACKAGE_DEFINITIONS
+
         billing = st.session_state.get("billing_cycle", "monthly")
         try:
             from database import get_packages_merged
-            cfg = get_packages_merged().get(pkg_key, PACKAGE_DEFINITIONS.get(pkg_key, {}))
+
+            cfg = get_packages_merged().get(
+                pkg_key, PACKAGE_DEFINITIONS.get(pkg_key, {})
+            )
         except Exception:
             cfg = PACKAGE_DEFINITIONS.get(pkg_key, {})
         amount = cfg.get("price_yearly" if billing == "yearly" else "price_monthly", 0)
 
         # Simpan data registrasi ke session SAJA (belum ke DB)
-        reg_data["_amount"]  = amount
+        reg_data["_amount"] = amount
         reg_data["_billing"] = billing
         st.session_state["registration_data"] = reg_data
-        st.session_state["pending_payment_id"] = None   # akan diisi setelah bukti dikirim
+        st.session_state["pending_payment_id"] = (
+            None  # akan diisi setelah bukti dikirim
+        )
         st.session_state["auth_page"] = "payment"
         st.rerun()
 
@@ -676,9 +748,9 @@ def _build_payment_gate():
     Menampilkan QRIS + form upload bukti bayar.
     Setelah bukti dikirim → tampilkan success page → redirect login.
     """
-    reg_data   = st.session_state.get("registration_data", {})
-    pkg_key    = st.session_state.get("selected_package", "starter")
-    billing    = st.session_state.get("billing_cycle", "monthly")
+    reg_data = st.session_state.get("registration_data", {})
+    pkg_key = st.session_state.get("selected_package", "starter")
+    billing = st.session_state.get("billing_cycle", "monthly")
     payment_id = st.session_state.get("pending_payment_id")
 
     # Jika tidak ada data registrasi (misal akses langsung), kembali ke pricing
@@ -711,9 +783,14 @@ def _build_payment_gate():
     if result and result.get("pending"):
         # ── Bukti pembayaran berhasil dikirim → BARU simpan user/lisensi/payment ke DB ──
         from datetime import date, timedelta
-        from database import create_user, create_license, create_payment, get_user_by_username
+        from database import (
+            create_user,
+            create_license,
+            create_payment,
+            get_user_by_username,
+        )
 
-        amount  = reg_data.get("_amount", 0)
+        amount = reg_data.get("_amount", 0)
         billing = reg_data.get("_billing", "monthly")
 
         ok, msg = create_user(
@@ -746,7 +823,9 @@ def _build_payment_gate():
             pay_ok, _, pay_id = create_payment(
                 user_id=user["id"],
                 amount=amount,
-                notes=result.get("notes", f"Registrasi baru paket {pkg_key} ({billing})"),
+                notes=result.get(
+                    "notes", f"Registrasi baru paket {pkg_key} ({billing})"
+                ),
             )
             if pay_ok:
                 st.session_state["pending_payment_id"] = pay_id
@@ -819,13 +898,14 @@ _LICENSE_CSS = """
 </style>
 """
 
+
 def _build_license_warning():
     # Selalu refresh dari DB sebelum cek status.
     # Ini memastikan perubahan admin (aktifkan, suspend, ganti paket)
     # langsung terlihat tanpa user perlu logout-login ulang.
     refresh_user_license()
 
-    status   = get_current_license_status()
+    status = get_current_license_status()
     end_date = get_current_license_end_date()
 
     # Jika setelah refresh status sudah valid, langsung return — lanjut ke app.
@@ -891,14 +971,17 @@ def _build_license_warning():
 
     _, col, _ = st.columns([1, 2, 1])
     with col:
-        st.markdown(f"""
+        st.markdown(
+            f"""
         <div class="lic-card">
             <div class="lic-icon">{cfg["icon"]}</div>
             <div class="lic-badge {cfg["badge_class"]}">{cfg["badge_text"]}</div>
             <div class="lic-title">{cfg["title"]}</div>
             <div class="lic-desc">{cfg["desc"]}</div>
         </div>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
         st.markdown("<br>", unsafe_allow_html=True)
 
@@ -914,27 +997,72 @@ def _build_license_warning():
 
     st.stop()
 
+
 # ─────────────────────────────────────────────
 # AUTH GUARD
 # ─────────────────────────────────────────────
 
-def require_auth(skip_pricing: bool = False):
-    """
-    Guard utama autentikasi.
+# Jatah rerun untuk menunggu component local storage selesai
+# melakukan round-trip JS <-> Python sebelum kita menyerah dan
+# menganggap user memang belum login.
+_LS_MAX_RETRIES = 4
 
-    skip_pricing=True  → langsung tampil form login (untuk admin_app.py)
-    skip_pricing=False → tampil halaman pricing dulu, lalu login (untuk app.py)
-    """
+# Set ke False setelah masalah refresh-logout selesai dikonfirmasi beres.
+# Selama True, sebuah baris kecil "DEBUG retry=.. token=.." akan tampil
+# di atas halaman supaya kamu bisa lihat apakah token berhasil terbaca.
+_LS_DEBUG = False
+
+def require_auth(skip_pricing: bool = False):
     _init_session()
 
-    # ── 1. Session aktif (sudah login) ───────────────────────────
+    # 1. Jika sudah login di session state -> tidak perlu apa-apa lagi
     if is_logged_in():
         if not is_admin():
             _build_license_warning()
         return
 
-    # ── 2. Coba pulihkan dari JWT di local storage ────────────────
-    token = _get_local_storage().getItem("fnb_jwt_token")
+    # 2. Coba pulihkan JWT dari Local Storage.
+    # PENTING: key harus SAMA PERSIS di setiap pemanggilan getItem untuk
+    # item yang sama ("fnb_jwt_token"), supaya Streamlit merujuk ke
+    # instance component yang sama, bukan membuat instance baru yang
+    # harus mulai round-trip JS dari nol setiap kali.
+    ls = _get_local_storage()
+    try:
+        _raw = ls.getItem("fnb_jwt_token", key="fnb_jwt_token_reader")
+    except Exception:
+        _raw = None
+
+    # Ekstraksi defensif: raw bisa berupa str, dict, None, atau tipe lain
+    # tergantung versi/state component. Lihat _extract_ls_value di atas.
+    token = _extract_ls_value(_raw, "fnb_jwt_token")
+
+    if _LS_DEBUG:
+        _raw_preview = repr(_raw)
+        if len(_raw_preview) > 200:
+            _raw_preview = _raw_preview[:200] + "...(truncated)"
+        st.caption(
+            f"DEBUG — retry={st.session_state.get('_ls_retries', 0)} "
+            f"raw_type={type(_raw).__name__} raw={_raw_preview} "
+            f"token={'(none)' if token is None else token[:24] + '...'}"
+        )
+
+    if token is None:
+        retries = st.session_state.get("_ls_retries", 0)
+        if retries < _LS_MAX_RETRIES:
+            # Belum dapat value dari browser — beri kesempatan lagi.
+            # TIDAK pakai time.sleep() di sini: sleep memblokir script
+            # run dan justru mengganggu siklus setComponentValue() yang
+            # dipicu otomatis oleh component saat JS selesai membaca
+            # localStorage. Biarkan Streamlit yang atur timing-nya.
+            st.session_state["_ls_retries"] = retries + 1
+            st.rerun()
+        # Kalau jatah retry sudah habis, lanjut ke bawah dengan token None
+        # (berarti memang tidak ada token tersimpan / gagal terbaca).
+    else:
+        # Sudah dapat value — reset counter untuk lain kali.
+        st.session_state["_ls_retries"] = 0
+
+    # 3. Jika token ditemukan, verifikasi dan login user
     if token:
         payload = verify_token(token)
         if payload:
@@ -947,40 +1075,42 @@ def require_auth(skip_pricing: bool = False):
                 if not is_admin():
                     _build_license_warning()
                 return
+            elif _LS_DEBUG:
+                st.caption(
+                    f"DEBUG — token valid tapi user tidak ditemukan/nonaktif "
+                    f"(user_id={payload.get('user_id')!r})"
+                )
+        elif _LS_DEBUG:
+            st.caption(
+                "DEBUG — token ditemukan tapi verify_token() gagal "
+                "(expired / signature tidak cocok / SECRET_KEY berbeda)"
+            )
 
-    # ── 3. Belum login ────────────────────────────────────────────
+    # 4. Belum login sama sekali -> arahkan ke halaman yang sesuai
     if skip_pricing:
-        # admin_app: langsung login, tanpa tombol kembali ke pricing
         _build_login_page(show_back_button=False)
     else:
-        # app.py: pricing → register → login
         auth_page = st.session_state.get("auth_page", "pricing")
 
         if auth_page == "login":
             _build_login_page(show_back_button=True)
-
         elif auth_page == "register":
             _build_register_gate()
-
         elif auth_page == "payment":
-            # Halaman pembayaran setelah register paket berbayar
             _build_payment_gate()
-
         elif auth_page == "forgot_password":
             from ui.forgot_password import build_forgot_password_page
-            build_forgot_password_page()
 
+            build_forgot_password_page()
         elif auth_page == "forgot_username":
             from ui.forgot_password import build_forgot_username_page
+
             build_forgot_username_page()
-
         elif auth_page == "enterprise_contact":
-            # Enterprise contact page — premium UI/UX
             from ui.enterprise_contact import build_enterprise_contact_page
-            build_enterprise_contact_page()
 
+            build_enterprise_contact_page()
         else:
-            # Default: tampilkan pricing page
             _build_pricing_gate()
 
     st.stop()
