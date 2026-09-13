@@ -28,5 +28,8 @@ requests==2.33.1
 # ── Monitoring (opsional — aktif jika SENTRY_DSN diset di .env) ──
 sentry-sdk==2.29.1
 
+# ── supabase ─────────────────────────────────────────────────────
+supabase==2.10.0
+
 # ── TIDAK DIBUTUHKAN (sudah diganti load_env.py) ─────────────
 # python-dotenv tidak perlu diinstall

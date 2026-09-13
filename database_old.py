@@ -36,43 +36,11 @@ except ImportError:
 
 from config import DB_FILE
 
-# ── Supabase Storage sync (opsional) ───────────────────────────────
-# Menitipkan file SQLite ke Supabase Storage supaya tidak hilang saat
-# container di-restart (Streamlit Cloud filesystem bersifat ephemeral).
-# Kalau SUPABASE_URL / SUPABASE_SERVICE_KEY tidak diisi, blok ini
-# otomatis no-op dan aplikasi tetap 100% pakai SQLite lokal seperti biasa.
-try:
-    import supa_sync as _supa_sync
-    _supa_sync.restore_db_if_needed(DB_FILE)  # sekali saat app start
-    _SUPA_SYNC_ENABLED = True
-except Exception as _e:
-    _supa_sync = None
-    _SUPA_SYNC_ENABLED = False
-
-
-class _SyncedSQLiteConnection(sqlite3.Connection):
-    """sqlite3.Connection biasa, hanya menambahkan hook setelah commit()
-    untuk menjadwalkan upload snapshot ke Supabase Storage (async, debounced).
-    Tidak mengubah perilaku commit() itu sendiri sama sekali."""
-
-    def commit(self):
-        super().commit()
-        if _SUPA_SYNC_ENABLED:
-            try:
-                _supa_sync.schedule_upload(DB_FILE)
-            except Exception:
-                pass  # sync ke Supabase tidak boleh pernah menggagalkan transaksi lokal
-
 
 def get_db_connection():
     """Membuat koneksi ke database SQLite dengan WAL mode untuk concurrency."""
     # FIX #022: WAL mode allows concurrent reads + non-blocking writes
-    conn = sqlite3.connect(
-        DB_FILE,
-        check_same_thread=False,
-        timeout=30,
-        factory=_SyncedSQLiteConnection,
-    )
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
